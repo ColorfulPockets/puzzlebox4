@@ -84,6 +84,20 @@
     #status.err { color: #ef4444; border-color: rgba(239,68,68,0.5); }
     line.edge { stroke: rgba(148,163,184,0.6); stroke-width: 2.5; }
     polyline.path { stroke: #38bdf8; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(56,189,248,0.35)); }
+    /* animated glowing line that follows the finger/cursor */
+    polyline.live {
+      stroke: #a5f3fc;
+      stroke-width: 4;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 0 10px rgba(56,189,248,0.55));
+      stroke-dasharray: 12 14;
+      animation: dash-move 1.25s linear infinite;
+    }
+    @keyframes dash-move {
+      to { stroke-dashoffset: -26; }
+    }
     /* overlay shown when unlocked */
     #unlocked {
       position: absolute;
@@ -153,6 +167,11 @@
     pathEl.classList.add('path');
     svgEl.appendChild(pathEl);
 
+    // live polyline that follows the cursor/finger while drawing
+    const liveEl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    liveEl.classList.add('live');
+    svgEl.appendChild(liveEl);
+
     // Starfield background
     function drawStarfield() {
       const w = app.clientWidth, h = app.clientHeight;
@@ -198,6 +217,9 @@
         line.setAttribute('y2', centers[b].y);
         svgEl.appendChild(line);
       });
+      // ensure path and live line render above edges
+      svgEl.appendChild(pathEl);
+      svgEl.appendChild(liveEl);
     }
 
     // Update the drag path polyline to follow current pattern
@@ -210,11 +232,31 @@
     // Gesture logic: tap-and-drag across nodes
     let dragging = false;
     let pattern = [];
+    let lastPointer = null;
+
+    function getLocalPointer(e) {
+      const r = app.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+
+    function updateCursorPath() {
+      if (!dragging || pattern.length === 0 || !lastPointer) {
+        liveEl.setAttribute('points', '');
+        return;
+      }
+      const centers = getNodeCenters();
+      const pts = pattern.map(id => `${centers[id].x},${centers[id].y}`);
+      pts.push(`${lastPointer.x},${lastPointer.y}`);
+      liveEl.setAttribute('points', pts.join(' '));
+    }
+
     function begin(id, e) {
       dragging = true;
       pattern = [id];
       nodes[id].classList.add('on');
       updatePath(pattern);
+      lastPointer = getLocalPointer(e);
+      updateCursorPath();
       try { e.target.setPointerCapture(e.pointerId); } catch {}
       statusEl.textContent = 'Drawing…';
       statusEl.className = '';
@@ -228,6 +270,7 @@
         nodes[id].classList.add('on');
         updatePath(pattern);
       }
+      updateCursorPath();
     }
     function end() {
       if (!dragging) return;
@@ -242,6 +285,7 @@
         statusEl.className = 'err';
         setTimeout(reset, 700);
       }
+      liveEl.setAttribute('points','');
     }
 
     function showUnlocked() {
@@ -263,6 +307,8 @@
       svgEl.style.display = '';
       statusEl.style.display = '';
       unlockedEl.style.display = 'none';
+      liveEl.setAttribute('points','');
+      lastPointer = null;
     }
 
     function arraysEqual(a,b) { return a.length===b.length && a.every((v,i)=>v===b[i]); }
@@ -274,24 +320,7 @@
     });
     window.addEventListener('pointermove', (e) => {
       if (!dragging) return;
+      lastPointer = getLocalPointer(e);
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const node = el && el.closest && el.closest('.node');
-      if (node) add(+node.dataset.id);
-    }, { passive: true });
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
-
-    // Layout/resize
-    function layout() {
-      drawStarfield();
-      drawEdges();
-      updatePath(pattern);
-    }
-    const ro = new ResizeObserver(layout);
-    ro.observe(app);
-
-    // Initial paint
-    layout();
-  </script>
-</body>
-</html>
+      if
