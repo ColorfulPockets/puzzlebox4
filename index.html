@@ -4,35 +4,253 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Gambler Puzzle</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <!-- inline styles for mobile-optimized starfield and grid -->
+  <style>
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: #000;
+      color: #e5e7eb;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      touch-action: none; /* improve pointer handling on mobile */
+    }
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #starfield {
+      position: absolute;
+      inset: 0;
+      display: block;
+      pointer-events: none;
+    }
+    #lines {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    #grid {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(4, 1fr);
+      gap: clamp(16px, 4vw, 28px);
+      padding: clamp(16px, 6vw, 40px);
+      place-items: center;
+    }
+    .node {
+      width: clamp(48px, 12vw, 72px);
+      height: clamp(48px, 12vw, 72px);
+      border-radius: 999px;
+      border: 2px solid #94a3b8;
+      background:
+        radial-gradient(ellipse at center, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 60%, rgba(255,255,255,0) 100%),
+        rgba(17,24,39,0.6);
+      outline: none;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+    .node.on {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 2px rgba(56,189,248,0.35), 0 12px 32px rgba(56,189,248,0.25);
+    }
+    #status {
+      position: absolute;
+      left: 50%;
+      bottom: clamp(16px, 6vw, 28px);
+      transform: translateX(-50%);
+      background: rgba(17,24,39,0.6);
+      border: 1px solid rgba(148,163,184,0.4);
+      backdrop-filter: blur(4px);
+      color: #e5e7eb;
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: clamp(12px, 3.5vw, 14px);
+      text-align: center;
+      min-width: 160px;
+    }
+    #status.ok { color: #22c55e; border-color: rgba(34,197,94,0.5); }
+    #status.err { color: #ef4444; border-color: rgba(239,68,68,0.5); }
+    line.edge { stroke: rgba(148,163,184,0.6); stroke-width: 2.5; }
+    polyline.path { stroke: #38bdf8; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(56,189,248,0.35)); }
+  </style>
 </head>
 <body>
-  <header>
-    <h1>Gambler Puzzle</h1>
-    <p>Welcome! This is a simple site deployed via GitHub Pages.</p>
-  </header>
-
-  <main>
-    <section>
-      <h2>About</h2>
-      <p>This page is a placeholder. Edit this content and push changes to update your site.</p>
-    </section>
-
-    <section>
-      <h2>Links</h2>
-      <ul>
-        <li><a href="https://github.com/USERNAME/REPO" target="_blank" rel="noopener">Repository</a></li>
-        <li><a href="https://USERNAME.github.io/REPO/" target="_blank" rel="noopener">Live Site</a></li>
-      </ul>
-    </section>
-  </main>
-
-  <footer>
-    <small>© <span id="year"></span> Gambler Puzzle</small>
-  </footer>
+  <!-- replaced header/main/footer with puzzle lock UI -->
+  <div id="app" aria-label="Puzzle lock">
+    <canvas id="starfield"></canvas>
+    <svg id="lines" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="grid"></div>
+    <div id="status" aria-live="polite">Draw the pattern</div>
+  </div>
 
   <script>
-    document.getElementById('year').textContent = new Date().getFullYear();
+    // CONFIG: edit these to control connections and the unlock order.
+    // Node IDs are 0..11, row-major (3 columns x 4 rows).
+    const GRID = { cols: 3, rows: 4 };
+    const EDGES = [
+      // Horizontal connections
+      [0,1],[1,2],
+      [3,4],[4,5],
+      [6,7],[7,8],
+      [9,10],[10,11],
+      // Vertical connections
+      [0,3],[3,6],[6,9],
+      [1,4],[4,7],[7,10],
+      [2,5],[5,8],[8,11],
+      // To disable a line, remove or comment out its pair. To add one, include [a,b].
+    ];
+    const SECRET_PATTERN = [0, 1, 4, 7, 8]; // Edit this order to change the required unlock path.
+
+    const app = document.getElementById('app');
+    const gridEl = document.getElementById('grid');
+    const svgEl = document.getElementById('lines');
+    const statusEl = document.getElementById('status');
+    const starCanvas = document.getElementById('starfield');
+    const nodes = [];
+
+    // Build the grid nodes
+    const total = GRID.cols * GRID.rows;
+    for (let i = 0; i < total; i++) {
+      const n = document.createElement('button');
+      n.type = 'button';
+      n.className = 'node';
+      n.dataset.id = i;
+      n.setAttribute('aria-label', `Node ${i}`);
+      nodes.push(n);
+      gridEl.appendChild(n);
+    }
+
+    // SVG path used to visualize the user's drag
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    pathEl.classList.add('path');
+    svgEl.appendChild(pathEl);
+
+    // Starfield background
+    function drawStarfield() {
+      const w = app.clientWidth, h = app.clientHeight;
+      starCanvas.width = w; starCanvas.height = h;
+      const ctx = starCanvas.getContext('2d');
+      ctx.clearRect(0,0,w,h);
+      // subtle space gradient
+      const g = ctx.createLinearGradient(0,0,0,h);
+      g.addColorStop(0,'#020617'); g.addColorStop(1,'#000');
+      ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
+      // pinprick stars
+      const count = Math.round((w * h) / 1800);
+      for (let i=0;i<count;i++) {
+        const x = Math.random() * w;
+        const y = Math.random() * h;
+        const r = Math.random() * 1.2 + 0.2;
+        ctx.globalAlpha = 0.6 + Math.random()*0.4;
+        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Compute center positions of nodes relative to the app container
+    function getNodeCenters() {
+      const rect = app.getBoundingClientRect();
+      return nodes.map(n => {
+        const r = n.getBoundingClientRect();
+        return { x: r.left - rect.left + r.width/2, y: r.top - rect.top + r.height/2 };
+      });
+    }
+
+    // Draw static edges from EDGES config
+    function drawEdges() {
+      // clear existing edges (keep the path polyline)
+      [...svgEl.querySelectorAll('line.edge')].forEach(el => el.remove());
+      const centers = getNodeCenters();
+      EDGES.forEach(([a,b]) => {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.classList.add('edge');
+        line.setAttribute('x1', centers[a].x);
+        line.setAttribute('y1', centers[a].y);
+        line.setAttribute('x2', centers[b].x);
+        line.setAttribute('y2', centers[b].y);
+        svgEl.appendChild(line);
+      });
+    }
+
+    // Update the drag path polyline to follow current pattern
+    function updatePath(pattern) {
+      const centers = getNodeCenters();
+      const pts = pattern.map(id => `${centers[id].x},${centers[id].y}`).join(' ');
+      pathEl.setAttribute('points', pts);
+    }
+
+    // Gesture logic: tap-and-drag across nodes
+    let dragging = false;
+    let pattern = [];
+    function begin(id, e) {
+      dragging = true;
+      pattern = [id];
+      nodes[id].classList.add('on');
+      updatePath(pattern);
+      try { e.target.setPointerCapture(e.pointerId); } catch {}
+      statusEl.textContent = 'Drawing…';
+      statusEl.className = '';
+    }
+    function add(id) {
+      if (!dragging) return;
+      const last = pattern[pattern.length-1];
+      if (last === id) return;
+      if (!pattern.includes(id)) {
+        pattern.push(id);
+        nodes[id].classList.add('on');
+        updatePath(pattern);
+      }
+    }
+    function end() {
+      if (!dragging) return;
+      dragging = false;
+      const ok = arraysEqual(pattern, SECRET_PATTERN);
+      statusEl.textContent = ok ? 'Unlocked!' : 'Try again';
+      statusEl.className = ok ? 'ok' : 'err';
+      // auto-reset after short delay
+      setTimeout(reset, ok ? 900 : 700);
+    }
+    function arraysEqual(a,b) { return a.length===b.length && a.every((v,i)=>v===b[i]); }
+    function reset() {
+      pattern = [];
+      nodes.forEach(n => n.classList.remove('on'));
+      pathEl.setAttribute('points','');
+      statusEl.textContent = 'Draw the pattern';
+      statusEl.className = '';
+    }
+
+    // Event wiring
+    gridEl.addEventListener('pointerdown', (e) => {
+      const node = e.target.closest('.node'); if (!node) return;
+      begin(+node.dataset.id, e);
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const node = el && el.closest && el.closest('.node');
+      if (node) add(+node.dataset.id);
+    }, { passive: true });
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+
+    // Layout/resize
+    function layout() {
+      drawStarfield();
+      drawEdges();
+      updatePath(pattern);
+    }
+    const ro = new ResizeObserver(layout);
+    ro.observe(app);
+
+    // Initial paint
+    layout();
   </script>
 </body>
 </html>
