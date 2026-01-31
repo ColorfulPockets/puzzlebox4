@@ -39,8 +39,13 @@
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       grid-template-rows: repeat(4, 1fr);
-      gap: clamp(16px, 4vw, 28px);
-      padding: clamp(16px, 6vw, 40px);
+      /* add top/bottom margins to condense the grid vertically */
+      left: 0; right: 0;
+      top: clamp(28px, 9vh, 80px);
+      bottom: clamp(28px, 9vh, 80px);
+      /* slightly tighter spacing */
+      gap: clamp(12px, 3.5vw, 24px);
+      padding: clamp(12px, 5vw, 32px);
       place-items: center;
     }
     .node {
@@ -79,6 +84,19 @@
     #status.err { color: #ef4444; border-color: rgba(239,68,68,0.5); }
     line.edge { stroke: rgba(148,163,184,0.6); stroke-width: 2.5; }
     polyline.path { stroke: #38bdf8; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(56,189,248,0.35)); }
+    /* overlay shown when unlocked */
+    #unlocked {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: clamp(28px, 10vw, 72px);
+      letter-spacing: 0.12em;
+      color: #22c55e;
+      text-shadow: 0 0 16px rgba(34,197,94,0.25);
+    }
   </style>
 </head>
 <body>
@@ -88,6 +106,8 @@
     <svg id="lines" xmlns="http://www.w3.org/2000/svg"></svg>
     <div id="grid"></div>
     <div id="status" aria-live="polite">Draw the pattern</div>
+    <!-- unlocked overlay -->
+    <div id="unlocked" aria-live="polite">UNLOCKED</div>
   </div>
 
   <script>
@@ -114,6 +134,7 @@
     const statusEl = document.getElementById('status');
     const starCanvas = document.getElementById('starfield');
     const nodes = [];
+    const unlockedEl = document.getElementById('unlocked');
 
     // Build the grid nodes
     const total = GRID.cols * GRID.rows;
@@ -212,19 +233,39 @@
       if (!dragging) return;
       dragging = false;
       const ok = arraysEqual(pattern, SECRET_PATTERN);
-      statusEl.textContent = ok ? 'Unlocked!' : 'Try again';
-      statusEl.className = ok ? 'ok' : 'err';
-      // auto-reset after short delay
-      setTimeout(reset, ok ? 900 : 700);
+      if (ok) {
+        statusEl.textContent = 'Unlocked!';
+        statusEl.className = 'ok';
+        showUnlocked();
+      } else {
+        statusEl.textContent = 'Try again';
+        statusEl.className = 'err';
+        setTimeout(reset, 700);
+      }
     }
-    function arraysEqual(a,b) { return a.length===b.length && a.every((v,i)=>v===b[i]); }
+
+    function showUnlocked() {
+      // hide puzzle UI, show overlay
+      gridEl.style.display = 'none';
+      svgEl.style.display = 'none';
+      statusEl.style.display = 'none';
+      unlockedEl.style.display = 'flex';
+    }
+
     function reset() {
       pattern = [];
       nodes.forEach(n => n.classList.remove('on'));
       pathEl.setAttribute('points','');
       statusEl.textContent = 'Draw the pattern';
       statusEl.className = '';
+      // restore puzzle UI
+      gridEl.style.display = '';
+      svgEl.style.display = '';
+      statusEl.style.display = '';
+      unlockedEl.style.display = 'none';
     }
+
+    function arraysEqual(a,b) { return a.length===b.length && a.every((v,i)=>v===b[i]); }
 
     // Event wiring
     gridEl.addEventListener('pointerdown', (e) => {
