@@ -156,7 +156,16 @@
     //   [5,7],[7,9],
       // To disable a line, remove or comment out its pair. To add one, include [a,b].
     ];
-    const SECRET_PATTERN = [1, 4, 8, 11, 10]; // Edit this order to change the required unlock path.
+    /*
+      0  1  2
+      3  4  5
+      6  7  8
+      9 10 11
+    */
+    const SECRET_PATTERNS = [
+      [1, 4, 8, 11, 10],
+      [1, 4, 6, 9, 10]
+    ];
 
     const app = document.getElementById('app');
     const gridEl = document.getElementById('grid');
@@ -293,7 +302,7 @@
     function end() {
       if (!dragging) return;
       dragging = false;
-      const ok = arraysEqual(pattern, SECRET_PATTERN);
+      const ok = SECRET_PATTERNS.some(secret => arraysEqual(pattern, secret));
       if (ok) {
         statusEl.textContent = 'Unlocked!';
         statusEl.className = 'ok';
